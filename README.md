@@ -1,24 +1,17 @@
-# KG's variable pitch/speed player
-
-Written in: JavaScript, Node.js, React, Web Audio API
+# Modified pitch-shift & slow-downer
 
 Runs on Windows/macOS/Linux/Android/iOS
 
 Based on [SoundTouchJS](https://github.com/cutterbl/SoundTouchJS)
 
-## User guide/executable url:  [English](https://goto920.github.io/demos/variableplayer/)   [日本語](https://goto920.github.io/demos/variableplayer/index-jp.html)
+## Changes
 
-## Feature
+Modified the functionality of the original repo so that:
+- Aesthetics: the UI has a cleaner, more user-friendly appearance
+- Functionality: the granularity of the time-controls is finer
+- Implementation: it receives an audio file as a prop, so that it can have hard-coded files on page-load, or custom-uploaded files
 
-- Same program (just 700kB) works on various devices.
-- No installation required. Runs offline.
-- Slow down playback (25% to 200%) for drummer, guitarist, pianist, vocalist
-- Fine pitch adjustment (semi-tone.cents) for vocalist, guitarist, pianist
-- Local downloading of modified sound as a wav file
+## Usage
+Note that these updated files work for a NextJS project, which is why for example the CSS file is named as "SlowDowner.module.css", and the classes are designated with "className" instead of the usual React style of "class". To tweak this for a normal React project, the class wording in the HTML will have to be adjusted as well as the CSS file having being renamed as a normal CSS file.
 
-Note: Upon download on iOS 12 browser will open blob window with "unknown" and users should save the file as filename.wav. iOS 13 may not have the problem.
-Sound quality is not very good for big change in speed or pitch. 
-
-Download begins after playback because soundtouchJS does not work with OfflineAudioContext so far.
-
-![ScreenShot](https://goto920.github.io/demos/variableplayer/player-eng.png)
+![ScreenShot](https://raw.githubusercontent.com/blah148/pitch-shifter/daf72c07efc8fab99dcb75aa08b34e7990e0e0e0/Screenshot%20from%202024-03-03%2022-59-06.png)
