@@ -1,28 +1,21 @@
 import React, { Component } from 'react';
-// import logo from './logo.svg';
-import './App.css';
-import {PitchShifter} from 'soundtouchjs'
-import packageJSON from '../package.json'
-import {saveAs} from 'file-saver';
-import * as toWav from 'audiobuffer-to-wav';
+import {PitchShifter} from 'soundtouchjs';
 import messages from './language.json';
+import styles from './SlowDowner.module.css';
+import PlayIcon from './PlayIcon';
+import PauseIcon from './PauseIcon';
+import RewindIcon from './RewindIcon';
+import LoopIcon from './LoopIcon';
+import LeftChevron from './LeftChevron';
+import RightChevron from './RightChevron';
 
-const version = packageJSON.subversion
-// var homepage = 'https://goto920.github.io/demos/variableplayer/'
-const jaText = messages.ja;
-const usText = messages.us;
-var m;
-if (window.navigator.language.slice(0,2) === 'ja') m = jaText
-else m = usText
-
-window.AudioContext = window.AudioContext || window.webkitAudioContext
-
+var m = messages.us;
 var audioCtx;
 var gainNode;
 // =  audioCtx.createGain()
 var shifter = null // null
 
-class App extends Component {
+class SlowDowner extends Component {
 
   constructor (props){
     super(props)
@@ -32,7 +25,7 @@ class App extends Component {
       audioBuffer: null,
       isPlaying: false,
       loop: false,
-      loopInterval: 2.0,
+      loopInterval: 0.0,
       exportDataL: null,
       exportDataR: null,
       exportBuffer: null,
@@ -40,7 +33,6 @@ class App extends Component {
     }
 
     this.state = {
-      ja: (m === jaText),
       playingAt: 0,
       playingAtSlider: 0,
       timeA: 0,
@@ -63,13 +55,26 @@ class App extends Component {
     this.handleTimeSlider = this.handleTimeSlider.bind(this)
     this.handleVolumeSlider = this.handleVolumeSlider.bind(this)
     this.handlePlay = this.handlePlay.bind(this);
-    this.handleSaveB = this.handleSaveB.bind(this);
-    this.fakeDownload = this.fakeDownload.bind(this);
     this.handleLoop = this.handleLoop.bind(this);
     this.playAB = this.playAB.bind(this);
-    this.handleLang = this.handleLang.bind(this);
+		this.handleToggleLoop = this.handleToggleLoop.bind(this);
+		this.handleTimeASliderChange = this.handleTimeASliderChange.bind(this);
+		this.handleTimeBSliderChange = this.handleTimeBSliderChange.bind(this);
+		this.handleIncrementTimeA = this.handleIncrementTimeA.bind(this);
+		this.handleDecrementTimeA = this.handleDecrementTimeA.bind(this);
+		this.handleIncrementTimeB = this.handleIncrementTimeB.bind(this);
+		this.handleDecrementTimeB = this.handleDecrementTimeB.bind(this);
     
   } // end constructor
+
+formatTime(seconds) {
+  let minutes = Math.floor(seconds / 60);
+  let remainingSeconds = Math.floor(seconds % 60);
+  // Extract the first significant digit of milliseconds by dividing by 100 and rounding
+  let milliseconds = Math.floor((seconds - Math.floor(seconds)) * 10); // Changed from multiplying by 1000 to 10
+  // Return the formatted time string in mm:ss.ms format
+  return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}.${milliseconds}`;
+}
 
   handleWindowClose(event) { 
     if (shifter) { shifter.disconnect(); shifter.off(); shifter = null; 
@@ -78,23 +83,55 @@ class App extends Component {
   }
 
   componentDidMount () { // after render()
+    // Safe to access window object here
+    window.AudioContext = window.AudioContext || window.webkitAudioContext;
     audioCtx = new window.AudioContext()
     gainNode = audioCtx.createGain()
     window.addEventListener('beforeClosing', this.handleWindowClose)
+		this.loadFile();
   }
 
   componentWillUnmount () { // before closing app
+  if (shifter) {
+    shifter.disconnect();
+    shifter.off(); // Assuming this method stops the playback and removes event listeners
+    shifter = null;
+  }
+  if (gainNode) {
+    gainNode.disconnect();
+  }
+  if (audioCtx) {
+    audioCtx.close().then(() => {
+      console.log("Audio context closed");
+    });
+  }
     window.removeEventListener('beforeClosing', this.handleWindowClose)
   }
+	
+	handleToggleLoop = () => {
+  const newLoopStatus = !this.params.loop;
+  this.params.loop = newLoopStatus;
+	
+	if (!this.params.loop) {
+	  const newTimeB = this.params.audioBuffer.duration;	
+		this.setState({ timeB: newTimeB }, () => {
+			if (this.params.isPlaying) {
+					this.playAB(this.state.playingAt, this.state.timeB);
+				}
+			});
+
+	}
+
+  // Additional logic here if needed, e.g., to stop the loop
+}
 
   render() {
-    const {loadFile, 
-           handleSpeedSlider, handlePitchSlider, handleVolumeSlider, 
-           handleTimeSlider, handlePlay, handleSaveB, 
-           handleLoop, handleLang} = this;
-    const {ja,playingAt, playingAtSlider, timeA, timeB,
+    const {handleSpeedSlider, handlePitchSlider, 
+           handleTimeSlider, handlePlay, 
+           handleLoop} = this;
+    const {playingAt, playingAtSlider, timeA, timeB,
            playSpeed, playPitch, playPitchSemi, playPitchCents,
-           playVolume, startButtonStr, loopButtonStr, saveButtonStr} 
+           loopButtonStr, startButtonStr} 
            = this.state
 
     let duration = 0;
@@ -113,120 +150,97 @@ class App extends Component {
     else  
       loopBStyle = {};
 
-    let saveBStyle; 
-    if (saveButtonStr === m.abortExport)
-      saveBStyle = {color: 'green'};
-    else  
-      saveBStyle = {};
-
     let hrBlue = {border: '1px dotted', color: 'blue'};
 
     return (
-      <div className="App">
-      {m.title} &nbsp;&nbsp;
-      <span className='small-button'>
-       <button name='language' onClick={handleLang}>
-       {ja ? 'En(US)' : '日本語'}</button> 
-      </span>
-      <hr />
-      1) {m.input}: <br />
-        <span className="selectFile">
-        <input type="file" name="loadFile"
-        accept="audio/*,.wav,.mp3,.aac,.m4a,.opus" 
-        onChange={loadFile} /><br />
-        </span>
-      <hr />
-
-      {m.speed}: {playSpeed} &nbsp;&nbsp;
-        <button name='reset' onClick={handleSpeedSlider} >{m.reset}</button>
-        <br />
-        <span className='slider'> 
-         <center>
-         025<input type='range' name='speedSlider' min='25' max='200'
-         value = {playSpeed} onChange={handleSpeedSlider} />200 
-         </center>
-        </span>
-      <hr />
-      {m.pitch}: {parseFloat(playPitch).toFixed(2)} &nbsp;&nbsp;
-       <button name='reset' onClick={handlePitchSlider} >{m.reset}</button>
-       <br />
-        <span className='slider'> 
-         <center>
-         -12<input type='range' name='pitchSliderSemi' min='-12' max='12'
-         value = {playPitchSemi} onChange={handlePitchSlider} />12<br />
-         <hr style={hrBlue}/>
-         -100<input type='range' name='pitchSliderCents' min='-100' max='100'
-         value = {playPitchCents} onChange={handlePitchSlider} />100<br />
-         </center>
-
-        </span>
-      <hr />
-        {m.time}: {playingAt.toFixed(2)} &nbsp; {m.timeNote}<br />
-        <span className='slider'> 
-        <center>
-        0<input type='range' name='timeSlider'
-        min='0' max={duration}
-        value = {playingAtSlider} step='1'
-        onChange={handleTimeSlider} />
-        {Math.round(duration)}<br />
-        </center>
-        <button name='setA' onClick={handleLoop} >{m.setA}</button>
-        : {timeA.toFixed(2)} &nbsp;&nbsp;
-        <button name='setB' onClick={handleLoop} >{m.setB}</button>
-        : {timeB.toFixed(2)} &nbsp;&nbsp;
-        <button name='resetAB' onClick={handleLoop}> 
-        {m.resetAB}
+      <div className={styles.App}>
+			 	<div className={styles.slowDownerRow}>
+          <h3>Speed</h3>
+			    <center>
+            <input type='range' name='speedSlider' min='25' max='200' value = {playSpeed} onChange={handleSpeedSlider} />
+			 	  </center>
+					<label className={styles.numberLabel}>{playSpeed}%</label>
+				</div>
+				<div className={styles.slowDownerRow}>
+			  	<h3>Pitch</h3>
+          <center>
+            <input type='range' name='pitchSliderCents' min='-100' max='100' value = {playPitchCents} onChange={handlePitchSlider} />
+					</center>
+				  <label className={styles.numberLabel}>{parseFloat(playPitch).toFixed(2)}</label>
+        </div>
+				<hr className={styles.slowDownerSeparator}  />
+				<div className={styles.slowDownerRow}>
+					<h3>Start</h3>
+					<center>
+						<input
+							type="range"
+							step='0.5'
+							id="timeASlider"
+							name="timeASlider"
+							min="0"
+							max={this.params.audioBuffer ? this.params.audioBuffer.duration : 100} // Assuming 100 as a fallback max
+							value={this.state.timeA}
+							onChange={this.handleTimeASliderChange} 
+						/>
+					</center>
+					<label className={styles.numberLabel}>{this.formatTime(timeA)}</label>
+					<button onClick={this.handleDecrementTimeA} aria-label="Decrease" className={`${styles.incrementButton} ${styles.left}`}>
+						<LeftChevron />
+					</button>
+					<button name='setA' onClick={handleLoop} >{m.setA}</button>
+					<button className={`${styles.incrementButton} ${styles.right}`} onClick={this.handleIncrementTimeA} aria-label="Increase">
+						<RightChevron />
+					</button>
+				</div>
+ 				<div className={styles.slowDownerRow}>
+					<h3>End</h3>
+					<center>
+						<input
+							type="range"
+							id="timeBSlider"
+							name="timeBSlider"
+							step='0.5'
+							min="0"
+							max={this.params.audioBuffer ? this.params.audioBuffer.duration : 100} // Assuming 100 as a fallback max
+							value={this.state.timeB}
+							onChange={this.handleTimeBSliderChange} 
+						/>
+					</center>
+					<label className={styles.numberLabel}>{this.formatTime(timeB)}</label>
+					<button className={`${styles.incrementButton} ${styles.left}`} onClick={this.handleDecrementTimeB} aria-label="Decrease">
+						<LeftChevron />
+					</button>
+					<button name='setB' onClick={handleLoop} >{m.setB}</button>
+					<button className={`${styles.incrementButton} ${styles.right}`} onClick={this.handleIncrementTimeB} aria-label="Increase">
+						<RightChevron />
+					</button>
+				</div>
+				<hr className={styles.slowDownerSeparator} />
+				<div className={styles.slowDownerRow}>
+				<label className={styles.mainPlaybackLabel}>
+				  {this.formatTime(playingAt-timeA)}
+				</label>
+				<center>
+          <input 
+						type='range' 
+						name='timeSlider'
+            min={this.state.timeA} max={this.state.timeB}
+            value = {playingAtSlider} step='0.1'
+            onChange={handleTimeSlider} 
+				  />
+				</center>
+				<label className={styles.mainPlaybackLabel}>
+					{this.formatTime(timeB-timeA)}
+				</label>
+			</div>
+      <div className={styles.buttonControlsRow}>
+				<button className={styles.buttonRewind} name='Rewind' onClick={handleLoop}>
+					<RewindIcon />
         </button>
-        </span>
-        <hr />
-      {m.volume}: {playVolume} &nbsp;&nbsp; {m.volumeNote}<br />
-        <span className='slider'> 
-         <center>
-         0<input type='range' name='volumeSlider' min='0' max='150'
-         value = {playVolume} onChange={handleVolumeSlider} />150<br />
-         </center>
-        </span>
-      <hr />
-
-      <span>
-        2A) <button name='startPause' 
-               onClick={handlePlay} style={startBStyle}> 
-        {startButtonStr}
-        </button> &nbsp;&nbsp;
-        <button name='Rewind' onClick={handleLoop}>
-        {m.rewind}</button>
-        <hr style={hrBlue}/>
-        2B) <button name='LoopAB' 
-              onClick={handleLoop} style={loopBStyle}>
-        {loopButtonStr}</button> &nbsp;&nbsp;
-        {m.interval} <span className='selector'>
-        <select name='loopInterval'
-           defaultValue={this.params.loopInterval} onChange={handleLoop}>
-          <option value='0'>00</option>
-          <option value='1'>01</option>
-          <option value='2'>02</option>
-          <option value='4'>04</option>
-          <option value='5'>05</option>
-          <option value='10'>10</option>
-          <option value='20'>20</option>
-          <option value='30'>30</option>
-          <option value='60'>60</option>
-        </select>
-        </span>
-        <hr />
-        3) <button name='save' 
-            onClick={handleSaveB} style={saveBStyle}> 
-        {saveButtonStr}
-        </button> 
-      </span>
-      <hr />
-        {m.version}: {version}, &nbsp;
-        <a href={m.homepage} 
-         target="_blank" rel="noopener noreferrer">{m.guide}</a>
-        <br />
-        Based on <a href="https://github.com/cutterbl/SoundTouchJS"
-         target="_blank" rel="noopener noreferrer">
-        cutterbl/SoundTouchJS</a>
+				<button name='startPause' className={styles.buttonPlay} disabled={!this.params.audioBuffer} onClick={handlePlay}> 
+          {!this.params.isPlaying ? <PlayIcon /> : <PauseIcon />}
+        </button>
+      </div>
       </div>
     ) // end return
 
@@ -234,41 +248,32 @@ class App extends Component {
 
 ///////////////////////////////////////////////////
 
-  loadFile (event) {
+async loadFile() {
+  if (this.params.isPlaying) return;
 
-   if (event.target.name !== 'loadFile') return;
-   if (event.target.files.length === 0) return;
-   if (this.params.isPlaying) return;
+  this.setState({ totalTime: 0, startButtonStr: m.playOnce });
+  this.params.filename = '/test.mp3';
+	this.params.loop = true;
 
-   this.setState({totalTime: 0})
-   this.setState({startButtonStr: m.playOnce})
-   let file = event.target.files[0]
-   this.params.filename = file.name;
+  try {
+    const response = await fetch(this.props.mp3); // Path to the file in the public directory
+    const arrayBuffer = await response.arrayBuffer();
 
-   let reader = new FileReader()
+    // Close existing audio context if any
+    if (audioCtx) audioCtx.close();
 
-   if (audioCtx) audioCtx.close();
-   audioCtx = new window.AudioContext()
-   gainNode = audioCtx.createGain()
+    // Create new audio context and gain node
+    audioCtx = new window.AudioContext();
+    gainNode = audioCtx.createGain();
 
-   reader.onload = function (e) {
-
-     audioCtx.decodeAudioData(reader.result, 
-        function(audioBuffer) {
-          this.params.saudioBuffer = null
-          this.params.audioBuffer = audioBuffer
-          this.setState({startButtonStr: m.playOnce, 
-             playingAt: 0, playingAtSlider: 0})
-          this.setState({timeA: 0})
-          this.setState({timeB: audioBuffer.duration})
-        }.bind(this),
-        function (error) { console.log ("Filereader error: " + error.err) })
-
-   }.bind(this)
-
-   reader.readAsArrayBuffer(file)
-
- } // end loadFile()
+    // Decode the audio data
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    this.params.audioBuffer = audioBuffer;
+    this.setState({ startButtonStr: m.playOnce, playingAt: 0, playingAtSlider: 0, timeA: 0, timeB: audioBuffer.duration });
+  } catch (error) {
+    console.error("Error loading file:", error);
+  }
+}
 
 // UI handlers
   handleSpeedSlider(event) { 
@@ -287,6 +292,54 @@ class App extends Component {
      }
 
   }
+	handleTimeASliderChange = (event) => {
+  const newTimeA = parseFloat(event.target.value);
+  this.params.timeA = newTimeA; // Update the parameter
+  
+  // Optionally, update the state if you want to trigger a re-render or have the UI reflect this change
+  this.setState({ playingAt: newTimeA }); // change start-time label for Main Time Slider when the setA slider is modified
+	this.setState({playingAtSlider: newTimeA}); // change the position of the Main Time Slider knob when the setA slider is modded
+  this.setState({ timeA: newTimeA });
+};
+handleTimeBSliderChange = (event) => {
+  const newTimeB = parseFloat(event.target.value);
+  this.params.timeB = newTimeB; // Update the parameter
+  
+  // Optionally, update the state to reflect the change in the UI and potentially re-render
+  this.setState({ timeB: newTimeB });
+};
+
+
+	// Handler to decrement the slider value
+	handleDecrementTimeA = () => {
+		const newTimeA = Math.max(parseFloat(this.state.timeA) - 0.5, 0);
+    const event = { target: { value: newTimeA.toString() } };
+    this.handleTimeASliderChange(event);
+	}
+
+	// Handler to increment the slider value
+	handleIncrementTimeA = () => {
+		const newTimeA = Math.min(parseFloat(this.state.timeA) + 0.5, this.params.audioBuffer ? this.params.audioBuffer.duration : 100);
+		const event = { target: { value: newTimeA.toString() } };
+		this.handleTimeASliderChange(event);
+	}
+
+
+	// Handler to decrement the slider value
+	handleDecrementTimeB = () => {
+		const newTimeB = Math.max(parseFloat(this.state.timeB) - 0.5, 0);
+    const event = { target: { value: newTimeB.toString() } };
+    this.handleTimeBSliderChange(event);
+	}
+
+	// Handler to increment the slider value
+	handleIncrementTimeB = () => {
+		const newTimeB = Math.min(parseFloat(this.state.timeB) + 0.5, this.params.audioBuffer ? this.params.audioBuffer.duration : 100);
+		const event = { target: { value: newTimeB.toString() } };
+		this.handleTimeBSliderChange(event);
+	}
+
+
 
   handlePitchSlider(event) { 
 
@@ -340,8 +393,7 @@ class App extends Component {
      let timeA, timeB; 
 
 // Pause
-     if (this.state.startButtonStr === m.pause){
-       if (!this.params.isPlaying) return;
+     if (this.params.isPlaying) {
        if (shifter === null) return
 
        shifter.disconnect(); shifter.off(); shifter = null;
@@ -355,14 +407,11 @@ class App extends Component {
 
 // PlayOnce
 
-     if (event.target.name === 'startPause' 
-       && this.state.startButtonStr === m.playOnce) {
-       if (this.params.isPlaying) return;
+     if (!this.params.isPlaying) {
 
-       timeA = this.state.playingAt;
-       timeB = audioBuffer.duration;
+			let startTime = (this.state.playingAt >= this.state.timeA && this.state.playingAt <= this.state.timeB) ? this.state.playingAt : this.state.timeA;
 
-       this.playAB(timeA, timeB); // timeA, timeB
+       this.playAB(startTime, this.state.timeB); // timeA, timeB
        return;
      }
 
@@ -371,213 +420,73 @@ class App extends Component {
     return;
   } // end handlePlay()
 
-  fakeDownload(audioBuffer){
-
-    const words = this.params.filename.split('.');
-    let outFileName = 
-         words[0]
-       + '&s' + parseInt(this.state.playSpeed)
-       + '&p' + parseInt(this.state.playPitch*100)
-       + '.wav';
-    let blob = new Blob([toWav(audioBuffer)], {type: 'audio/vnd.wav'});
-    saveAs(blob,outFileName);
-  }
-
-  handleSaveB(event) { 
-    // console.log ('handleSaveB');
-
-    if (event.target.name !== 'save') return;
-
-    if (this.state.startButtonStr !== m.playOnce
-      || this.state.loopButtonStr !== m.loopAB) return;
-
-    const {audioBuffer} = this.params;
-
-    if (this.state.saveButtonStr === m.abortExport) {
-      if(shifter) { shifter.disconnect(); shifter.off(); shifter = null;
-        gainNode.disconnect(); }
-
-      this.params.isPlaying = false;
-      this.setState({saveButtonStr: m.exportWav});
-      // console.log ('handleSaveB: AbortExport');
-
-      return;
-    }
-
-// Save
-    if (this.state.saveButtonStr === m.exportWav) {
-
-      if (this.params.isPlaying) return;
-      if (!audioBuffer) return;
-
-
-// https://www.gmass.co/blog/record-audio-mobile-web-page-ios-android/
-// https://developer.mozilla.org/en-US/docs/Web/API/ScriptProcessorNode/onaudioprocess
-
-      let saverNode = null;
-      let channels = audioBuffer.numberOfChannels;
-
-      if (shifter) {shifter.disconnect(); shifter.off(); shifter= null;}
-
-      let bufferSize = 16384; // 1024?
-      shifter = new PitchShifter(audioCtx, audioBuffer, bufferSize);
-      shifter.tempo = this.state.playSpeed/100.0;
-      shifter.pitch = Math.pow(2.0,this.state.playPitch/12.0);
-
-      saverNode = audioCtx.createScriptProcessor(bufferSize, 
-      channels,channels);
-/*
-      if (audioCtx.createScriptProcessor) {
-        saverNode = audioCtx.createScriptProcessor(bufferSize, 
-          channels,channels);
-        console.log ('createScriptProcessor');
-      } else if (audioCtx.createJavaScriptNode) {
-        saverNode = audioCtx.createJavaScriptNode(bufferSize,channels,channels);
-        console.log ('createJavaScriptNode');
-      } else {
-        console.log ('createScript is not supported');
-        return;
-      }
-*/
-
-/* Storage */
-      this.params.exportBuffer = audioCtx.createBuffer( 
-        channels,
-        parseInt(audioBuffer.length*(100/this.state.playSpeed))
-        + bufferSize, 
-        audioBuffer.sampleRate);
-
-      this.params.save = true;
-
-/* Script Processor */
-      let base = 0;
-      if (AudioBuffer.prototype.copyToChannel) 
-        console.log('copyToChannel OK');
-      else 
-        console.log('copyToChannel NG');
-
-      saverNode.onaudioprocess = function(event){
-        let inputBuffer = event.inputBuffer;
-        let outputBuffer = event.outputBuffer;
-        let exportBuffer = this.params.exportBuffer;
-
-        for (let channel = 0; channel < inputBuffer.numberOfChannels; 
-             channel++){
-          let inputData  = inputBuffer.getChannelData(channel);
-          let outputData = outputBuffer.getChannelData(channel);
-          let exportData = exportBuffer.getChannelData(channel);
-
-          if (AudioBuffer.prototype.copyToChannel){
-            outputBuffer.copyToChannel(inputData, channel,0);
-            exportBuffer.copyToChannel(inputData, channel, base);
-          } else {
-            for (let sample = 0; sample < inputBuffer.length; sample++) {
-              let value = inputData[sample];
-              outputData[sample] = value;
-              exportData[base + sample] = value;
-            }
-          } // end if copyToChannel
-
-        } // end for channel
-
-        base += inputBuffer.length;
-
-      }.bind(this); // end onaudioprocess
-
-    // gainNode.gain.value = 0.2;
-    // this.handleVolumeSlider({target: {name: 'volumeSlider', value: 20}});
-
-      shifter.on('play', detail => {
-        let currentPos = parseFloat(detail.timePlayed);
-        this.setState({playingAt: currentPos, playingAtSlider: currentPos}); 
-
-        if (detail.formattedTimePlayed >= shifter.formattedDuration) {
-          saverNode.disconnect();
-          shifter.off(); shifter.disconnect(); shifter = null;
-          gainNode.disconnect();
-
-          this.fakeDownload(this.params.exportBuffer);
-          this.params.isPlaying = false;
-          this.setState({saveButtonStr: m.exportWav});
-          this.params.save = false;
-          return;
-        } // end 100%
-
-      }); // end shifter.on()
-
-      this.setState({saveButtonStr: m.abortExport});
-      this.params.isPlaying = true;
-      shifter.connect(saverNode);
-      saverNode.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      if (audioCtx.state === 'suspended') audioCtx.resume()
-
-      return;
-    } // end if exportWav
-
-  } // end handleSaveB
-
   handleLoop(event) {
-
-    if (event.target.name === 'loopInterval') {
-      this.params.loopInterval = parseInt(event.target.value,10);
-      return;
-    }
-
-
-    if (event.target.name === 'Rewind') {
-      if (this.params.isPlaying) return;
-
-      this.setState ({playingAt: 0});
-      this.setState ({playingAtSlider: 0});
+    if (event.currentTarget.name == 'Rewind') {
+			if(this.params.isPlaying) {
+				shifter.disconnect(); shifter.off(); shifter = null;
+				gainNode.disconnect();
+				this.params.isPlaying = false;
+				this.setState({playingAtSlider: this.state.playingAt});
+				this.playAB(this.state.timeA, this.state.timeB);
+			}
+      this.setState ({playingAt: this.state.timeA});
+      this.setState ({playingAtSlider: this.state.timeA});
 
       return;
     }
 
-    if (event.target.name === 'setA') {
-      this.setState ({timeA: this.state.playingAt});
-      this.setState ({playingAtSlider: this.state.playingAt});
-      return;
-    }
+		if (event.target.name === 'setA') {
+			this.setState({ timeA: this.state.playingAt });
+			return;
+		}
 
-    if (event.target.name === 'setB'){
-      if (this.state.playingAt >=  this.state.timeA)
-        this.setState ({timeB: parseFloat(this.state.playingAt)});
-      else
-        this.setState ({timeB: parseFloat(this.state.timeA) + parseFloat(10)});
-      return;
-    }
+		if (event.target.name === 'setB') {
+			const newTimeB = this.state.playingAt >= this.state.timeA
+				? parseFloat(this.state.playingAt)
+				: parseFloat(this.state.timeA) + 10;
+
+			this.setState({ timeB: newTimeB }, () => {
+				if (this.params.isPlaying) {
+					// The playAB function is now called with the updated state values
+					this.playAB(this.state.timeA, this.state.timeB);
+				}
+				this.setState({ loopButtonStr: m.stopLoop, startButtonStr: m.playOnce });
+				this.params.loop = true;
+			});
+		}
 
     if (event.target.name === 'LoopAB'){
       if (!this.params.audioBuffer) return;
 
-      if (this.state.loopButtonStr === m.loopAB){ 
-        if (this.params.isPlaying) return;
-        this.params.loop = true;
-        this.playAB(this.state.timeA, this.state.timeB);
-        this.setState ({loopButtonStr: m.stopLoop});
-        this.setState ({startButtonStr: m.playOnce});
-      } else if (this.state.loopButtonStr === m.stopLoop){ 
+		if (!this.params.loop) {
+			this.params.loop = true;
 
-        if (!this.params.isPlaying) return;
+			let startTime = this.state.playingAt >= this.state.timeA && this.state.playingAt <= this.state.timeB
+											? this.state.playingAt
+											: this.state.timeA;
 
-        if(shifter){ shifter.disconnect(); shifter.off(); shifter = null;
-          gainNode.disconnect()}
+			this.playAB(startTime, this.state.timeB);
+			this.setState({ loopButtonStr: m.stopLoop, startButtonStr: m.playOnce });
 
-        this.params.isPlaying = false;
-        this.params.loop = false;
-        this.setState ({loopButtonStr: m.loopAB});
-      }
+		} else {
+			if (!this.params.isPlaying) return;
 
-      return;
-    }
+			if (shifter) {
+				shifter.disconnect(); shifter.off(); shifter = null;
+				gainNode.disconnect();
+			}
 
+			this.params.isPlaying = false;
+			this.params.loop = false;
+			this.setState({playingAtSlider: this.state.playingAt, loopButtonStr: m.loopAB});
+		}
+
+		return;
+	}
 // reset AB
     if (event.target.name === 'resetAB') {
       if (this.params.audioBuffer === null) return;
-      this.setState ({timeA: 0,
-                      timeB: this.params.audioBuffer.duration,
-                      playingAtSlider: 0});
+      this.setState ({timeA: 0, timeB: this.params.audioBuffer.duration});
 
     return;
    } // end resetAB
@@ -587,7 +496,6 @@ class App extends Component {
 
   playAB(timeA, timeB) {
 
-     if (this.params.isPlaying) return;
      if (this.params.audioBuffer === null) return;
 
      if (audioCtx.state === 'suspended') audioCtx.resume()
@@ -602,13 +510,11 @@ class App extends Component {
      const from = timeA*audioBuffer.sampleRate;
      const to = timeB*audioBuffer.sampleRate;
      let offset = 0;
-     if (this.params.loop) 
-       offset = loopInterval*audioBuffer.sampleRate;
 
      let partialAudioBuffer = audioCtx.createBuffer(2,
           to - from + offset, audioBuffer.sampleRate);
      let left  = audioBuffer.getChannelData(0);
-     let right = audioBuffer.getChannelData(1);
+     let right = audioBuffer.getChannelData(0);
 
      left  = left.subarray(from, to);
      let tmp = partialAudioBuffer.getChannelData(0);
@@ -626,7 +532,7 @@ class App extends Component {
      tmp = null; 
 
 // create PitchShifter and Play
-     let bufferSize = 16384;
+     let bufferSize = 256;
      if (shifter) { shifter.disconnect(); shifter.off(); shifter= null;}
      shifter = new PitchShifter(audioCtx, partialAudioBuffer, bufferSize)
      partialAudioBuffer = null
@@ -668,39 +574,10 @@ class App extends Component {
     return;
   } // END playAB()
 
-  handleLang(e){
-
-    if (this.params.isPlaying) return; // cannot change during playback
-
-    if (e.target.name === 'language'){
-      let oldm = m;
-      if (this.state.ja) { 
-        m = usText; this.setState({ja: false}); 
-      } else { 
-        m = jaText; this.setState({ja: true}); }
-
-      if (this.state.startButtonStr === oldm.loadFile)
-        this.setState({startButtonStr: m.loadFile});
-      else if (this.state.startButtonStr === oldm.playOnce)
-        this.setState({startButtonStr: m.playOnce});
-      else if (this.state.startButtonStr === oldm.pause)
-        this.setState({startButtonStr: m.pause});
-
-      if (this.state.loopButtonStr === oldm.loopAB)
-        this.setState({loopButtonStr: m.loopAB});
-      else if (this.state.loopButtonStr === oldm.stopLoop)
-        this.setState({loopButtonStr: m.stopLoop});
-
-      if (this.state.saveButtonStr === oldm.exportWav)
-        this.setState({saveButtonStr: m.exportWav});
-      else if (this.state.saveButtonStr === oldm.abortExport)
-        this.setState({saveButtonStr: m.abortExport});
-
-     return;
-   } // end if
-
-  }
  
 } // end class
 
-export default App;
+export default SlowDowner;
+
+
+
